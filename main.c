@@ -1,191 +1,112 @@
-/*
- * main.c - Program entry point, window and global variables
- *
- * Owner: Mohib
- *
- * This file does three things:
- *   1. DEFINES the global variables shared by all files
- *      (game.h only declares them with "extern").
- *   2. WndProc(): receives every event of the window
- *      (paint, timer tick, key press, mouse click).
- *   3. WinMain(): creates the window and runs the message loop.
- *
- * Compile all files together (see README.md):
- *   gcc main.c snake.c ui.c food_score.c -o snake.exe -mwindows -lgdi32
- */
-
 #include "game.h"
 
-/* ---------------------------------------------------------------
- * GLOBAL VARIABLES (the only place where they are defined)
- * --------------------------------------------------------------- */
-
-/* Snake: index 0 is the head, index (length - 1) is the tail */
+/* ---------- the shared variables (created here, only declared in game.h) ---------- */
 int snakeX[MAX_LENGTH];
 int snakeY[MAX_LENGTH];
 int length = START_LENGTH;
 int direction = DIR_RIGHT;
 int nextDirection = DIR_RIGHT;
 
-/* Food position */
 int foodX = 0;
 int foodY = 0;
 
-/* Score */
 int score = 0;
 int highScore = 0;
 
-/* Game settings and state */
 int difficulty = MEDIUM;
 int speed = SPEED_MEDIUM;
 int gameOver = 0;
 int paused = 0;
 int gameState = STATE_MENU;
 
-/* Tail position left by the last move */
-int oldTailX = 0;
-int oldTailY = 0;
-
-/* The game window */
 HWND hwndMain = NULL;
 
-/* ---------------------------------------------------------------
- * WndProc()
- * Windows calls this function every time something happens to
- * our window. We decide what to do for each type of message.
- * --------------------------------------------------------------- */
+/* Windows calls this function for every event of our window.
+   msg tells which event it is. */
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-    switch (msg)
+    if (msg == WM_PAINT)                      /* the window must be drawn */
     {
-        case WM_PAINT:
-        {
-            /* Draw everything on a hidden bitmap first, then copy it to
-             * the window in one go. This stops the screen from flickering. */
-            PAINTSTRUCT ps;
-            HDC hdc = BeginPaint(hwnd, &ps);
-            RECT rc;
-            int w, h;
-            HDC memDC;
-            HBITMAP bitmap;
-            HBITMAP oldBitmap;
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
 
-            GetClientRect(hwnd, &rc);
-            w = rc.right;
-            h = rc.bottom;
+        /* draw on a hidden picture first, then show it in one step (no flicker) */
+        HDC memDC = CreateCompatibleDC(hdc);
+        HBITMAP bitmap = CreateCompatibleBitmap(hdc, WINDOW_W, WINDOW_H);
+        HBITMAP old = (HBITMAP)SelectObject(memDC, bitmap);
 
-            memDC = CreateCompatibleDC(hdc);
-            bitmap = CreateCompatibleBitmap(hdc, w, h);
-            oldBitmap = (HBITMAP)SelectObject(memDC, bitmap);
+        drawFrame(memDC);
+        BitBlt(hdc, 0, 0, WINDOW_W, WINDOW_H, memDC, 0, 0, SRCCOPY);
 
-            drawFrame(memDC);                           /* ui.c */
-
-            BitBlt(hdc, 0, 0, w, h, memDC, 0, 0, SRCCOPY);
-
-            SelectObject(memDC, oldBitmap);
-            DeleteObject(bitmap);
-            DeleteDC(memDC);
-            EndPaint(hwnd, &ps);
-            return 0;
-        }
-
-        case WM_ERASEBKGND:
-            return 1;           /* we paint the whole window ourselves */
-
-        case WM_TIMER:
-            /* The timer ticks once per snake move */
-            if (wParam == GAME_TIMER_ID && gameState == STATE_PLAYING)
-            {
-                gameTick();                             /* snake.c */
-                InvalidateRect(hwnd, NULL, FALSE);      /* ask for a redraw */
-            }
-            return 0;
-
-        case WM_KEYDOWN:
-            handleKeyDown((int)wParam);                 /* ui.c */
-            return 0;
-
-        case WM_LBUTTONDOWN:
-            handleMouseClick((short)LOWORD(lParam), (short)HIWORD(lParam));
-            return 0;
-
-        case WM_MOUSEMOVE:
-            handleMouseMove((short)LOWORD(lParam), (short)HIWORD(lParam));
-            return 0;
-
-        case WM_DESTROY:
-            KillTimer(hwnd, GAME_TIMER_ID);
-            PostQuitMessage(0);
-            return 0;
-
-        default:
-            break;
+        SelectObject(memDC, old);
+        DeleteObject(bitmap);
+        DeleteDC(memDC);
+        EndPaint(hwnd, &ps);
+        return 0;
     }
-
-    return DefWindowProcA(hwnd, msg, wParam, lParam);
+    if (msg == WM_ERASEBKGND)                 /* we paint everything ourselves */
+        return 1;
+    if (msg == WM_TIMER && gameState == STATE_PLAYING)   /* time for one snake step */
+    {
+        gameTick();
+        InvalidateRect(hwnd, NULL, FALSE);    /* ask for a redraw */
+        return 0;
+    }
+    if (msg == WM_KEYDOWN)                    /* a key was pressed */
+    {
+        handleKeyDown((int)wParam);
+        return 0;
+    }
+    if (msg == WM_LBUTTONDOWN)                /* left mouse button clicked */
+    {
+        handleMouseClick(LOWORD(lParam), HIWORD(lParam));
+        return 0;
+    }
+    if (msg == WM_MOUSEMOVE)                  /* the mouse moved */
+    {
+        handleMouseMove(LOWORD(lParam), HIWORD(lParam));
+        return 0;
+    }
+    if (msg == WM_DESTROY)                    /* the window was closed */
+    {
+        updateHighScore();
+        PostQuitMessage(0);
+        return 0;
+    }
+    return DefWindowProcA(hwnd, msg, wParam, lParam);   /* Windows does the rest */
 }
 
-/* ---------------------------------------------------------------
- * WinMain()
- * The starting point of a Windows GUI program.
- * Creates the window, then keeps processing messages until
- * the window is closed.
- * --------------------------------------------------------------- */
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
-                   LPSTR lpCmdLine, int nCmdShow)
+/* The program starts here: create the window, then handle events until it is closed. */
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrev, LPSTR cmdLine, int nCmdShow)
 {
     WNDCLASSA wc;
     MSG msg;
-    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-    RECT rect;
+    DWORD style = WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    RECT size = {0, 0, WINDOW_W, WINDOW_H};
 
-    (void)hPrevInstance;    /* not used */
-    (void)lpCmdLine;        /* not used */
-
-    /* describe our window type */
+    /* describe our kind of window and register it */
     memset(&wc, 0, sizeof(wc));
-    wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
     wc.hCursor = LoadCursorA(NULL, IDC_ARROW);
-    wc.hbrBackground = NULL;
-    wc.lpszClassName = "SnakeGameWindow";
+    wc.lpszClassName = "SnakeGame";
+    RegisterClassA(&wc);
 
-    if (!RegisterClassA(&wc))
-    {
-        MessageBoxA(NULL, "Could not register the window.", "Error", MB_OK);
-        return 1;
-    }
-
-    /* We want a drawing area of exactly WINDOW_W x WINDOW_H pixels.
-     * AdjustWindowRect adds the space for the title bar and borders. */
-    rect.left = 0;
-    rect.top = 0;
-    rect.right = WINDOW_W;
-    rect.bottom = WINDOW_H;
-    AdjustWindowRect(&rect, style, FALSE);
-
-    hwndMain = CreateWindowA("SnakeGameWindow", "Snake Game", style,
+    /* make the window big enough so that the drawing area is WINDOW_W x WINDOW_H */
+    AdjustWindowRect(&size, style, FALSE);
+    hwndMain = CreateWindowA("SnakeGame", "Snake Game", style,
                              CW_USEDEFAULT, CW_USEDEFAULT,
-                             rect.right - rect.left, rect.bottom - rect.top,
+                             size.right - size.left, size.bottom - size.top,
                              NULL, NULL, hInstance, NULL);
     if (hwndMain == NULL)
-    {
-        MessageBoxA(NULL, "Could not create the window.", "Error", MB_OK);
         return 1;
-    }
 
-    loadHighScore();                /* read the best score from the file */
-
+    loadHighScore();
     ShowWindow(hwndMain, nCmdShow);
-    UpdateWindow(hwndMain);
 
-    /* message loop: runs until the window is closed */
-    while (GetMessageA(&msg, NULL, 0, 0) > 0)
-    {
-        TranslateMessage(&msg);
+    /* wait for an event, give it to WndProc, repeat until the window closes */
+    while (GetMessageA(&msg, NULL, 0, 0))
         DispatchMessageA(&msg);
-    }
 
-    return (int)msg.wParam;
+    return 0;
 }
