@@ -1,328 +1,349 @@
 #include "game.h"
 
-#define CLR_GRASS_A     RGB(170, 215, 81)
-#define CLR_GRASS_B     RGB(162, 209, 73)
-#define CLR_WALL        RGB(74, 117, 44)
-#define CLR_HUD         RGB(55, 90, 35)
-#define CLR_BODY        RGB(78, 124, 246)
-#define CLR_HEAD        RGB(52, 95, 214)
-#define CLR_FOOD        RGB(231, 71, 29)
-#define CLR_DARK        RGB(28, 45, 32)
-#define CLR_WHITE       RGB(255, 255, 255)
-#define CLR_YELLOW      RGB(255, 206, 84)
-#define CLR_GRAY        RGB(170, 185, 170)
-#define CLR_RED         RGB(255, 99, 71)
-#define CLR_BTN         RGB(67, 160, 71)
-#define CLR_BTN_HOT     RGB(102, 187, 106)
+/* ---------- colours ---------- */
+#define CLR_GRASS1  RGB(170, 215, 81)
+#define CLR_GRASS2  RGB(162, 209, 73)
+#define CLR_WALL    RGB(74, 117, 44)
+#define CLR_BAR     RGB(55, 90, 35)
+#define CLR_BODY    RGB(78, 124, 246)
+#define CLR_HEAD    RGB(52, 95, 214)
+#define CLR_FOOD    RGB(231, 71, 29)
+#define CLR_DARK    RGB(28, 45, 32)
+#define CLR_WHITE   RGB(255, 255, 255)
+#define CLR_YELLOW  RGB(255, 206, 84)
+#define CLR_GRAY    RGB(170, 185, 170)
+#define CLR_RED     RGB(255, 99, 71)
+#define CLR_GREEN   RGB(67, 160, 71)
+#define CLR_LIGHT   RGB(102, 187, 106)
 
-#define SHAPE_BOX       0
-#define SHAPE_ROUND     1
-#define SHAPE_CIRCLE    2
+/* ---------- button layout: 4 slots, one under the other ---------- */
+#define MID         (WINDOW_W / 2)
+#define BTN_LEFT    230
+#define BTN_RIGHT   490
+#define BTN_HEIGHT  50
 
-#define ALIGN_CENTER    (DT_CENTER | DT_VCENTER | DT_SINGLELINE)
-#define REDRAW()        InvalidateRect(hwndMain, NULL, FALSE)
-
-#define BTN_NONE        0
-#define BTN_START       1
-#define BTN_DIFFICULTY  2
-#define BTN_HIGHSCORE   3
-#define BTN_EXIT        4
-#define BTN_EASY        5
-#define BTN_MEDIUM      6
-#define BTN_HARD        7
-#define BTN_BACK        8
-#define BTN_PLAY_AGAIN  9
-#define BTN_MENU        10
-#define BTN_RESUME      11
-
-#define BTN_W           260
-#define BTN_H           50
-#define BTN_X           ((WINDOW_W - BTN_W) / 2)
-
-typedef struct{
-    int state,id,y;
-    const char *label;
-} Button;
-
-static const Button buttons[] ={
-    {STATE_MENU,       190, "Start Game", BTN_START},
-    {STATE_MENU,       255, "Difficulty", BTN_DIFFICULTY},
-    {STATE_MENU,       320, "High Score", BTN_HIGHSCORE},
-    {STATE_MENU,       385, "Exit",       BTN_EXIT},
-    {STATE_DIFFICULTY, 190, "Easy",       BTN_EASY},
-    {STATE_DIFFICULTY, 255, "Medium",     BTN_MEDIUM},
-    {STATE_DIFFICULTY, 320, "Hard",       BTN_HARD},
-    {STATE_DIFFICULTY, 385, "Back",       BTN_BACK},
-    {STATE_HIGHSCORE,  385, "Back",       BTN_BACK},
-    {STATE_PAUSED,     320, "Resume",     BTN_RESUME},
-    {STATE_PAUSED,     385, "Main Menu",  BTN_MENU},
-    {STATE_GAMEOVER,   320, "Play Again", BTN_PLAY_AGAIN},
-    {STATE_GAMEOVER,   385, "Main Menu",  BTN_MENU}
-};
-
-#define BUTTON_COUNT    ((int)(sizeof(buttons) / sizeof(buttons[0])))
-
+static int hover = -1;                 /* slot under the mouse, -1 = none */
 static const char *levelName[] = {"", "Easy", "Medium", "Hard"};
-static int hoverId = BTN_NONE;
-static void shape(HDC hdc, int kind, int l, int t, int r, int b, COLORREF color){
-    HBRUSH brush = CreateSolidBrush(color);
-    HPEN pen = CreatePen(PS_SOLID, 1, color);
-    HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, brush);
-    HPEN oldPen = (HPEN)SelectObject(hdc, pen);
-    if (kind == SHAPE_ROUND)
-        RoundRect(hdc, l, t, r, b, 14, 14);
-    else if (kind == SHAPE_CIRCLE)
-        Ellipse(hdc, l, t, r, b);
-    else
-        Rectangle(hdc, l, t, r, b);
 
-    SelectObject(hdc, oldBrush);
-    SelectObject(hdc, oldPen);
+/* ---------- small drawing helpers ---------- */
+
+/* Fills a rectangle with one colour. */
+static void box(HDC hdc, int left, int top, int right, int bottom, COLORREF color)
+{
+    RECT r = {left, top, right, bottom};
+    HBRUSH brush = CreateSolidBrush(color);
+    FillRect(hdc, &r, brush);
     DeleteObject(brush);
-    DeleteObject(pen);
 }
 
-static void drawText(HDC hdc, const char *text, int l, int t, int r, int b,
-                     int size, COLORREF color, UINT format){
-    RECT rc;
-    HFONT font = CreateFontA(-size, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                             CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-                             DEFAULT_PITCH | FF_SWISS, "Segoe UI");
-    HFONT oldFont = (HFONT)SelectObject(hdc, font);
-    rc.left = l;
-    rc.top = t;
-    rc.right = r;
-    rc.bottom = b;
+/* Fills one grid cell (cell numbers -> pixels). margin = gap inside the cell. */
+static void cell(HDC hdc, int x, int y, int margin, COLORREF color)
+{
+    int left = x * CELL;
+    int top = HUD_HEIGHT + y * CELL;
+    box(hdc, left + margin, top + margin, left + CELL - margin, top + CELL - margin, color);
+}
+
+/* Writes text at (x, y). align is TA_LEFT, TA_CENTER or TA_RIGHT. */
+static void drawText(HDC hdc, const char *s, int x, int y, int size, COLORREF color, int align)
+{
+    HFONT font = CreateFontA(size, 0, 0, 0, FW_BOLD, 0, 0, 0, 0, 0, 0, 0, 0, "Segoe UI");
+    HFONT old = (HFONT)SelectObject(hdc, font);
     SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, color);
-    DrawTextA(hdc, text, -1, &rc, format);
-    SelectObject(hdc, oldFont);
+    SetTextAlign(hdc, align);
+    TextOutA(hdc, x, y, s, (int)strlen(s));
+    SelectObject(hdc, old);
     DeleteObject(font);
 }
 
-static void drawButtons(HDC hdc){
-    int i;
-    for (i = 0; i < BUTTON_COUNT; i++){
-        if (buttons[i].state != gameState)
-            continue;
-        shape(hdc, SHAPE_ROUND, BTN_X, buttons[i].y, BTN_X + BTN_W, buttons[i].y + BTN_H,
-              buttons[i].id == hoverId ? CLR_BTN_HOT : CLR_BTN);
-        drawText(hdc, buttons[i].label, BTN_X, buttons[i].y, BTN_X + BTN_W,
-                 buttons[i].y + BTN_H, 22, CLR_WHITE, ALIGN_CENTER);
-    }
+/* Top edge of button slot 0..3 (slots are 65 pixels apart). */
+static int buttonTop(int slot)
+{
+    return 190 + slot * 65;
 }
 
-static int buttonAt(int x, int y){
-    int i;
-    for (i = 0; i < BUTTON_COUNT; i++){
-        if (buttons[i].state == gameState &&
-            x >= BTN_X && x < BTN_X + BTN_W &&
-            y >= buttons[i].y && y < buttons[i].y + BTN_H)
-            return buttons[i].id;
-    }
-    return BTN_NONE;
+/* Draws one button in a slot; lighter green if the mouse is over it. */
+static void drawButton(HDC hdc, const char *label, int slot)
+{
+    int top = buttonTop(slot);
+    box(hdc, BTN_LEFT, top, BTN_RIGHT, top + BTN_HEIGHT, slot == hover ? CLR_LIGHT : CLR_GREEN);
+    drawText(hdc, label, MID, top + 10, 26, CLR_WHITE, TA_CENTER);
 }
 
-static void doAction(int id){
-    switch (id){
-        case BTN_START:
-        case BTN_PLAY_AGAIN:
+/* Dark background with a big title (used by the three menu screens). */
+static void drawBackground(HDC hdc, const char *title)
+{
+    box(hdc, 0, 0, WINDOW_W, WINDOW_H, CLR_DARK);
+    drawText(hdc, title, MID, 40, 64, CLR_YELLOW, TA_CENTER);
+}
+
+/* Yellow-framed dark box (used by the pause and game over screens). */
+static void drawPanel(HDC hdc)
+{
+    box(hdc, 150, 100, 570, 450, CLR_YELLOW);
+    box(hdc, 153, 103, 567, 447, CLR_DARK);
+}
+
+/* ---------- buttons: which slot is the mouse on, and what does a slot do ---------- */
+
+/* The first slot that has a button on the current screen (4 = no buttons). */
+static int firstSlot(void)
+{
+    if (gameState == STATE_MENU || gameState == STATE_DIFFICULTY)
+        return 0;
+    if (gameState == STATE_HIGHSCORE)
+        return 3;
+    if (gameState == STATE_PAUSED || gameState == STATE_GAMEOVER)
+        return 2;
+    return 4;
+}
+
+/* Returns the slot at pixel (x, y), or -1 if there is no button there. */
+static int buttonAt(int x, int y)
+{
+    int slot;
+
+    if (x < BTN_LEFT || x >= BTN_RIGHT)
+        return -1;
+    for (slot = firstSlot(); slot < 4; slot++)
+        if (y >= buttonTop(slot) && y < buttonTop(slot) + BTN_HEIGHT)
+            return slot;
+    return -1;
+}
+
+/* What pressing a button does. Mouse clicks and number keys both use this. */
+static void doButton(int slot)
+{
+    hover = -1;
+    if (gameState == STATE_MENU)
+    {
+        if (slot == 0)
             startGame();
-            break;
-        case BTN_DIFFICULTY:
+        else if (slot == 1)
             gameState = STATE_DIFFICULTY;
-            break;
-        case BTN_HIGHSCORE:
+        else if (slot == 2)
             gameState = STATE_HIGHSCORE;
-            break;
-        case BTN_EXIT:
+        else
             DestroyWindow(hwndMain);
-            break;
-        case BTN_EASY:
-        case BTN_MEDIUM:
-        case BTN_HARD:
-            setDifficulty(id - BTN_EASY + 1);
-            gameState = STATE_MENU;
-            break;
-        case BTN_BACK:
-        case BTN_MENU:
-            quitToMenu();
-            break;
-        case BTN_RESUME:
+    }
+    else if (gameState == STATE_DIFFICULTY)
+    {
+        if (slot < 3)
+            setDifficulty(slot + 1);
+        gameState = STATE_MENU;
+    }
+    else if (gameState == STATE_HIGHSCORE)
+        gameState = STATE_MENU;
+    else if (gameState == STATE_PAUSED)
+    {
+        if (slot == 2)
             pauseGame();
-            break;
-        default:
-            break;
+        else
+            quitToMenu();
     }
-    hoverId = BTN_NONE;
-    REDRAW();
+    else if (gameState == STATE_GAMEOVER)
+    {
+        if (slot == 2)
+            startGame();
+        else
+            gameState = STATE_MENU;
+    }
 }
 
-static void drawMenuScreen(HDC hdc, const char *title, const char *subtitle){
-    shape(hdc, SHAPE_BOX, 0, 0, WINDOW_W, WINDOW_H, CLR_DARK);
-    drawText(hdc, title, 0, 35, WINDOW_W, 115, 60, CLR_YELLOW, ALIGN_CENTER);
-    drawText(hdc, subtitle, 0, 115, WINDOW_W, 150, 18, CLR_GRAY, ALIGN_CENTER);
-    drawButtons(hdc);
-}
+/* ---------- the game screen ---------- */
 
-static void drawBox(HDC hdc, const char *title, int size, COLORREF color){
-    shape(hdc, SHAPE_ROUND, 150, 100, 570, 450, CLR_YELLOW);
-    shape(hdc, SHAPE_ROUND, 153, 103, 567, 447, CLR_DARK);
-    drawText(hdc, title, 150, 120, 570, 200, size, color, ALIGN_CENTER);
-    drawButtons(hdc);
-}
-
-void drawBoard(HDC hdc){
+void drawBoard(HDC hdc)
+{
     int x, y;
-    COLORREF color;
-    for (y = 0; y < HEIGHT; y++){
-        for (x = 0; x < WIDTH; x++){
-            color = ((x + y) % 2) ? CLR_GRASS_B : CLR_GRASS_A;
+
+    for (y = 0; y < HEIGHT; y++)
+        for (x = 0; x < WIDTH; x++)
+        {
             if (x == 0 || y == 0 || x == WIDTH - 1 || y == HEIGHT - 1)
-                color = CLR_WALL;
-            shape(hdc, SHAPE_BOX, x * CELL, HUD_HEIGHT + y * CELL,
-                  (x + 1) * CELL, HUD_HEIGHT + (y + 1) * CELL, color);
+                cell(hdc, x, y, 0, CLR_WALL);
+            else if ((x + y) % 2 == 0)
+                cell(hdc, x, y, 0, CLR_GRASS1);
+            else
+                cell(hdc, x, y, 0, CLR_GRASS2);
         }
-    }
 }
 
-void drawSnake(HDC hdc){
+void drawSnake(HDC hdc)
+{
     int i;
-    for (i = length - 1; i >= 0; i--)
-        shape(hdc, SHAPE_ROUND, snakeX[i] * CELL + 1, HUD_HEIGHT + snakeY[i] * CELL + 1,
-              (snakeX[i] + 1) * CELL - 1, HUD_HEIGHT + (snakeY[i] + 1) * CELL - 1,
-              i == 0 ? CLR_HEAD : CLR_BODY);
+
+    cell(hdc, snakeX[0], snakeY[0], 1, CLR_HEAD);
+    for (i = 1; i < length; i++)
+        cell(hdc, snakeX[i], snakeY[i], 1, CLR_BODY);
 }
 
-void drawFood(HDC hdc){
-    shape(hdc, SHAPE_CIRCLE, foodX * CELL + 3, HUD_HEIGHT + foodY * CELL + 3,
-          (foodX + 1) * CELL - 3, HUD_HEIGHT + (foodY + 1) * CELL - 3, CLR_FOOD);
+void drawFood(HDC hdc)
+{
+    cell(hdc, foodX, foodY, 4, CLR_FOOD);
 }
 
-void drawScore(HDC hdc){
-    char text[64];
-    shape(hdc, SHAPE_BOX, 0, 0, WINDOW_W, HUD_HEIGHT, CLR_HUD);
+void drawScore(HDC hdc)
+{
+    char text[40];
+
+    box(hdc, 0, 0, WINDOW_W, HUD_HEIGHT, CLR_BAR);
     sprintf(text, "Score: %d", score);
-    drawText(hdc, text, 20, 0, 260, HUD_HEIGHT, 24, CLR_WHITE,
-             DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    drawText(hdc, text, 20, 10, 26, CLR_WHITE, TA_LEFT);
     sprintf(text, "Level: %s", levelName[difficulty]);
-    drawText(hdc, text, 260, 0, 460, HUD_HEIGHT, 20, CLR_GRAY, ALIGN_CENTER);
+    drawText(hdc, text, MID, 14, 22, CLR_GRAY, TA_CENTER);
     sprintf(text, "High Score: %d", highScore);
-    drawText(hdc, text, 460, 0, WINDOW_W - 20, HUD_HEIGHT, 24, CLR_YELLOW,
-             DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+    drawText(hdc, text, WINDOW_W - 20, 10, 26, CLR_YELLOW, TA_RIGHT);
 }
 
-void drawMainMenu(HDC hdc){
-    drawMenuScreen(hdc, "SNAKE GAME", "by Mohib, Aarish and Hasan");
+/* ---------- the other screens ---------- */
+
+void drawMainMenu(HDC hdc)
+{
+    drawBackground(hdc, "SNAKE GAME");
+    drawText(hdc, "by Mohib, Aarish and Hasan", MID, 120, 22, CLR_GRAY, TA_CENTER);
+    drawButton(hdc, "Start Game", 0);
+    drawButton(hdc, "Difficulty", 1);
+    drawButton(hdc, "High Score", 2);
+    drawButton(hdc, "Exit", 3);
 }
 
-void drawDifficultyScreen(HDC hdc){
-    char text[32];
+void drawDifficultyScreen(HDC hdc)
+{
+    char text[40];
+
+    drawBackground(hdc, "DIFFICULTY");
     sprintf(text, "Current level: %s", levelName[difficulty]);
-    drawMenuScreen(hdc, "DIFFICULTY", text);
+    drawText(hdc, text, MID, 120, 22, CLR_GRAY, TA_CENTER);
+    drawButton(hdc, "Easy", 0);
+    drawButton(hdc, "Medium", 1);
+    drawButton(hdc, "Hard", 2);
+    drawButton(hdc, "Back", 3);
 }
 
-void drawHighScoreScreen(HDC hdc){
-    char text[32];
-    drawMenuScreen(hdc, "HIGH SCORE", "Your best result so far");
+void drawHighScoreScreen(HDC hdc)
+{
+    char text[40];
+
+    drawBackground(hdc, "HIGH SCORE");
     sprintf(text, "%d", highScore);
-    drawText(hdc, text, 0, 175, WINDOW_W, 320, 110, CLR_WHITE, ALIGN_CENTER);
+    drawText(hdc, text, MID, 190, 110, CLR_WHITE, TA_CENTER);
+    drawButton(hdc, "Back", 3);
 }
 
-void drawPauseScreen(HDC hdc){
-    drawBox(hdc, "PAUSED", 56, CLR_YELLOW);
-    drawText(hdc, "Press P to resume", 150, 230, 570, 270, 20, CLR_GRAY, ALIGN_CENTER);
+void drawPauseScreen(HDC hdc)
+{
+    drawPanel(hdc);
+    drawText(hdc, "PAUSED", MID, 125, 60, CLR_YELLOW, TA_CENTER);
+    drawText(hdc, "Press P to resume", MID, 215, 22, CLR_GRAY, TA_CENTER);
+    drawButton(hdc, "Resume", 2);
+    drawButton(hdc, "Main Menu", 3);
 }
 
-void drawGameOverScreen(HDC hdc){
-    char text[64];
-    drawBox(hdc, "GAME OVER", 52, CLR_RED);
+void drawGameOverScreen(HDC hdc)
+{
+    char text[40];
+
+    drawPanel(hdc);
+    drawText(hdc, "GAME OVER", MID, 120, 56, CLR_RED, TA_CENTER);
     sprintf(text, "Your score: %d", score);
-    drawText(hdc, text, 150, 205, 570, 235, 24, CLR_WHITE, ALIGN_CENTER);
+    drawText(hdc, text, MID, 205, 26, CLR_WHITE, TA_CENTER);
     sprintf(text, "High score: %d", highScore);
-    drawText(hdc, text, 150, 235, 570, 265, 20, CLR_GRAY, ALIGN_CENTER);
+    drawText(hdc, text, MID, 240, 22, CLR_GRAY, TA_CENTER);
     if (score > 0 && score == highScore)
-        drawText(hdc, "NEW HIGH SCORE!", 150, 270, 570, 305, 24, CLR_YELLOW, ALIGN_CENTER);
+        drawText(hdc, "NEW HIGH SCORE!", MID, 272, 26, CLR_YELLOW, TA_CENTER);
+    drawButton(hdc, "Play Again", 2);
+    drawButton(hdc, "Main Menu", 3);
 }
 
-void drawFrame(HDC hdc){
+/* Draws the screen that matches gameState. main.c calls this. */
+void drawFrame(HDC hdc)
+{
     if (gameState == STATE_MENU)
         drawMainMenu(hdc);
     else if (gameState == STATE_DIFFICULTY)
         drawDifficultyScreen(hdc);
     else if (gameState == STATE_HIGHSCORE)
         drawHighScoreScreen(hdc);
-    else{
+    else
+    {
         drawScore(hdc);
         drawBoard(hdc);
         drawFood(hdc);
         drawSnake(hdc);
         if (gameState == STATE_PAUSED)
             drawPauseScreen(hdc);
-        else if (gameState == STATE_GAMEOVER)
+        if (gameState == STATE_GAMEOVER)
             drawGameOverScreen(hdc);
     }
 }
-void handleKeyDown(int key){
-    switch (gameState){
-        case STATE_MENU:
-            if (key >= '1' && key <= '4')
-                doAction(key - '0');
-            else if (key == VK_ESCAPE)
-                doAction(BTN_EXIT);
-            break;
 
-        case STATE_DIFFICULTY:
-            if (key >= '1' && key <= '3')
-                doAction(BTN_EASY + key - '1');
-            else if (key == VK_ESCAPE)
-                doAction(BTN_BACK);
-            break;
+/* ---------- keyboard and mouse ---------- */
 
-        case STATE_HIGHSCORE:
-            if (key == VK_ESCAPE || key == VK_RETURN)
-                doAction(BTN_BACK);
-            break;
+void handleKeyDown(int key)
+{
+    if (gameState == STATE_MENU || gameState == STATE_DIFFICULTY)
+    {
+        if (key >= '1' && key <= '4')
+            doButton(key - '1');
+        else if (key == VK_ESCAPE)
+            doButton(3);
+    }
+    else if (gameState == STATE_HIGHSCORE)
+    {
+        if (key == VK_ESCAPE || key == VK_RETURN)
+            doButton(3);
+    }
+    else if (gameState == STATE_PLAYING)
+    {
+        if (key == VK_UP && direction != DIR_DOWN)
+            nextDirection = DIR_UP;
+        else if (key == VK_DOWN && direction != DIR_UP)
+            nextDirection = DIR_DOWN;
+        else if (key == VK_LEFT && direction != DIR_RIGHT)
+            nextDirection = DIR_LEFT;
+        else if (key == VK_RIGHT && direction != DIR_LEFT)
+            nextDirection = DIR_RIGHT;
+        else if (key == 'P')
+            pauseGame();
+        else if (key == VK_ESCAPE)
+            quitToMenu();
+    }
+    else if (gameState == STATE_PAUSED)
+    {
+        if (key == 'P')
+            pauseGame();
+        else if (key == VK_ESCAPE)
+            quitToMenu();
+    }
+    else if (gameState == STATE_GAMEOVER)
+    {
+        if (key == 'Y' || key == VK_RETURN)
+            doButton(2);
+        else if (key == 'N' || key == VK_ESCAPE)
+            doButton(3);
+    }
+    InvalidateRect(hwndMain, NULL, FALSE);
+}
 
-        case STATE_PLAYING:
-        case STATE_PAUSED:
-            if (gameState == STATE_PLAYING){
-                if (key == VK_UP && direction != DIR_DOWN)
-                    nextDirection = DIR_UP;
-                else if (key == VK_DOWN && direction != DIR_UP)
-                    nextDirection = DIR_DOWN;
-                else if (key == VK_LEFT && direction != DIR_RIGHT)
-                    nextDirection = DIR_LEFT;
-                else if (key == VK_RIGHT && direction != DIR_LEFT)
-                    nextDirection = DIR_RIGHT;
-            }
-            if (key == 'P')
-                doAction(BTN_RESUME);
-            else if (key == VK_ESCAPE)
-                doAction(BTN_MENU);
-            break;
+void handleMouseClick(int x, int y)
+{
+    int slot = buttonAt(x, y);
 
-        case STATE_GAMEOVER:
-            if (key == 'Y' || key == VK_RETURN)
-                doAction(BTN_PLAY_AGAIN);
-            else if (key == 'N' || key == VK_ESCAPE)
-                doAction(BTN_MENU);
-            break;
-
-        default:
-            break;
+    if (slot >= 0)
+    {
+        doButton(slot);
+        InvalidateRect(hwndMain, NULL, FALSE);
     }
 }
-void handleMouseClick(int x, int y){
-    int id = buttonAt(x, y);
-    if (id != BTN_NONE)
-        doAction(id);
-}
-void handleMouseMove(int x, int y){
-    int id = buttonAt(x, y);
-    if (id != hoverId){
-        hoverId = id;
-        REDRAW();
+
+void handleMouseMove(int x, int y)
+{
+    int slot = buttonAt(x, y);
+
+    if (slot != hover)
+    {
+        hover = slot;
+        InvalidateRect(hwndMain, NULL, FALSE);
     }
 }
